@@ -1,15 +1,12 @@
 package create
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/clientcmd/api"
 )
 
 func TestRayCreateClusterComplete(t *testing.T) {
@@ -29,42 +26,16 @@ func TestRayCreateClusterValidate(t *testing.T) {
 
 	testNS, testContext, testBT, testImpersonate := "test-namespace", "test-context", "test-bearer-token", "test-person"
 
-	// Fake directory for kubeconfig
-	fakeDir, err := os.MkdirTemp("", "fake-dir")
+	kubeConfigWithCurrentContext, err := util.CreateTempKubeConfigFile(t, testContext)
 	assert.Nil(t, err)
-	defer os.RemoveAll(fakeDir)
 
-	// Set up fake config for kubeconfig
-	config := &api.Config{
-		Clusters: map[string]*api.Cluster{
-			"test-cluster": {
-				Server:                "https://fake-kubernetes-cluster.example.com",
-				InsecureSkipTLSVerify: true, // For testing purposes
-			},
-		},
-		Contexts: map[string]*api.Context{
-			"my-fake-context": {
-				Cluster:  "my-fake-cluster",
-				AuthInfo: "my-fake-user",
-			},
-		},
-		CurrentContext: "my-fake-context",
-		AuthInfos: map[string]*api.AuthInfo{
-			"my-fake-user": {
-				Token: "", // Empty for testing without authentication
-			},
-		},
-	}
-
-	fakeFile := filepath.Join(fakeDir, ".kubeconfig")
-
-	err = clientcmd.WriteToFile(*config, fakeFile)
+	kubeConfigWithoutCurrentContext, err := util.CreateTempKubeConfigFile(t, "")
 	assert.Nil(t, err)
 
 	fakeConfigFlags := &genericclioptions.ConfigFlags{
 		Namespace:        &testNS,
 		Context:          &testContext,
-		KubeConfig:       &fakeFile,
+		KubeConfig:       &kubeConfigWithCurrentContext,
 		BearerToken:      &testBT,
 		Impersonate:      &testImpersonate,
 		ImpersonateGroup: &[]string{"fake-group"},
@@ -78,8 +49,10 @@ func TestRayCreateClusterValidate(t *testing.T) {
 		{
 			name: "Test validation when no context is set",
 			opts: &CreateClusterOptions{
-				configFlags: genericclioptions.NewConfigFlags(false),
-				ioStreams:   &testStreams,
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithoutCurrentContext,
+				},
+				ioStreams: &testStreams,
 			},
 			expectError: "no context is currently set, use \"kubectl config use-context <context>\" to select a new one",
 		},

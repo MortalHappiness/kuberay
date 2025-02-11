@@ -6,6 +6,7 @@ import (
 
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,7 +32,7 @@ func TestGetKubeRayOperatorVersion(t *testing.T) {
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
-								Image: "kuberay/operator:v0.5.0",
+								Image: "kuberay/operator:v0.5.0@sha256:cc8ce713f3b4be3c72cca1f63ee78e3733bc7283472ecae367b47a128f7e4478",
 							},
 						},
 					},
@@ -53,7 +54,51 @@ func TestGetKubeRayOperatorVersion(t *testing.T) {
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
+								Image: "kuberay/operator:v0.6.0@sha256:cc8ce713f3b4be3c72cca1f63ee78e3733bc7283472ecae367b47a128f7e4478",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	kustomizeObjectsImageWithOnlyTag := []runtime.Object{
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "kuberay-operator-kustomize",
+				Namespace: "test",
+				Labels: map[string]string{
+					"app.kubernetes.io/name": "kuberay",
+				},
+			},
+			Spec: appsv1.DeploymentSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
 								Image: "kuberay/operator:v0.6.0",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	kustomizeObjectsImageWithOnlyDigest := []runtime.Object{
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "kuberay-operator-kustomize",
+				Namespace: "test",
+				Labels: map[string]string{
+					"app.kubernetes.io/name": "kuberay",
+				},
+			},
+			Spec: appsv1.DeploymentSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Image: "kuberay/operator@sha256:cc8ce713f3b4be3c72cca1f63ee78e3733bc7283472ecae367b47a128f7e4478",
 							},
 						},
 					},
@@ -69,22 +114,34 @@ func TestGetKubeRayOperatorVersion(t *testing.T) {
 		kubeObjects     []runtime.Object
 	}{
 		{
-			name:            "kubeRay operator not found",
+			name:            "KubeRay operator not found",
 			expectedVersion: "",
 			expectedError:   "no KubeRay operator deployments found in any namespace",
 			kubeObjects:     nil,
 		},
 		{
-			name:            "find kubeRay operator version for helm chart",
-			expectedVersion: "v0.5.0",
+			name:            "find KubeRay operator version for helm chart",
+			expectedVersion: "v0.5.0@sha256:cc8ce713f3b4be3c72cca1f63ee78e3733bc7283472ecae367b47a128f7e4478",
 			expectedError:   "",
 			kubeObjects:     helmKubeObjects,
 		},
 		{
-			name:            "find kubeRay operator version for Kustomize",
-			expectedVersion: "v0.6.0",
+			name:            "find KubeRay operator version for Kustomize",
+			expectedVersion: "v0.6.0@sha256:cc8ce713f3b4be3c72cca1f63ee78e3733bc7283472ecae367b47a128f7e4478",
 			expectedError:   "",
 			kubeObjects:     kustomizeObjects,
+		},
+		{
+			name:            "find KubeRay operator version for Kustomize",
+			expectedVersion: "v0.6.0",
+			expectedError:   "",
+			kubeObjects:     kustomizeObjectsImageWithOnlyTag,
+		},
+		{
+			name:            "find KubeRay operator version for Kustomize",
+			expectedVersion: "sha256:cc8ce713f3b4be3c72cca1f63ee78e3733bc7283472ecae367b47a128f7e4478",
+			expectedError:   "",
+			kubeObjects:     kustomizeObjectsImageWithOnlyDigest,
 		},
 	}
 
@@ -96,8 +153,8 @@ func TestGetKubeRayOperatorVersion(t *testing.T) {
 			version, err := client.GetKubeRayOperatorVersion(context.Background())
 
 			if tc.expectedVersion != "" {
-				assert.Equal(t, version, tc.expectedVersion)
-				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedVersion, version)
+				require.NoError(t, err)
 			} else {
 				assert.EqualError(t, err, tc.expectedError)
 			}
@@ -167,9 +224,9 @@ func TestGetRayHeadSvcNameByRayCluster(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svcName, err := client.GetRayHeadSvcName(context.Background(), tc.namespace, util.RayCluster, tc.resourceName)
 			if tc.serviceName == "" {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tc.serviceName, svcName)
 			}
 		})
@@ -242,9 +299,9 @@ func TestGetRayHeadSvcNameByRayJob(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svcName, err := client.GetRayHeadSvcName(context.Background(), tc.namespace, util.RayJob, tc.resourceName)
 			if tc.serviceName == "" {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tc.serviceName, svcName)
 			}
 		})
@@ -321,9 +378,9 @@ func TestGetRayHeadSvcNameByRayService(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svcName, err := client.GetRayHeadSvcName(context.Background(), tc.namespace, util.RayService, tc.resourceName)
 			if tc.serviceName == "" {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tc.serviceName, svcName)
 			}
 		})

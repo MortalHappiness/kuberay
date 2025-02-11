@@ -7,7 +7,7 @@ This section walks through how to build and test the operator in a running Kuber
 | software | version  |                                                                link |
 |:---------|:--------:|--------------------------------------------------------------------:|
 | kubectl  | v1.23.0+ | [download](https://kubernetes.io/docs/tasks/tools/install-kubectl/) |
-| go       |  v1.20   |                                  [download](https://golang.org/dl/) |
+| go       |  v1.22   |                                  [download](https://golang.org/dl/) |
 | docker   |  19.03+  |                        [download](https://docs.docker.com/install/) |
 
 Alternatively, you can use podman (version 4.5+) instead of docker. See [podman.io](https://podman.io/getting-started/installation) for installation instructions. The Makefile allows you to specify the container engine to use via the `ENGINE` variable. For example, to use podman, you can run `ENGINE=podman make docker-build`.
@@ -135,11 +135,11 @@ go fmt ./...
 go vet ./...
 ...
 setting up env vars
-?   	github.com/ray-project/kuberay/ray-operator	[no test files]
-ok  	github.com/ray-project/kuberay/ray-operator/api/v1alpha1	0.023s	coverage: 0.9% of statements
-ok  	github.com/ray-project/kuberay/ray-operator/controllers	9.587s	coverage: 66.8% of statements
-ok  	github.com/ray-project/kuberay/ray-operator/controllers/common	0.016s	coverage: 75.6% of statements
-ok  	github.com/ray-project/kuberay/ray-operator/controllers/utils	0.015s	coverage: 31.4% of statements
+?    github.com/ray-project/kuberay/ray-operator [no test files]
+ok   github.com/ray-project/kuberay/ray-operator/api/v1alpha1 0.023s coverage: 0.9% of statements
+ok   github.com/ray-project/kuberay/ray-operator/controllers 9.587s coverage: 66.8% of statements
+ok   github.com/ray-project/kuberay/ray-operator/controllers/common 0.016s coverage: 75.6% of statements
+ok   github.com/ray-project/kuberay/ray-operator/controllers/utils 0.015s coverage: 31.4% of statements
 ```
 
 The e2e tests can be run by executing the following command:
@@ -203,10 +203,7 @@ helm uninstall kuberay-operator; helm install kuberay-operator --set image.repos
 
 ## pre-commit hooks
 
-1. Install [golangci-lint](https://github.com/golangci/golangci-lint/releases).
-2. Install [kubeconform](https://github.com/yannh/kubeconform/releases).
-3. Install [pre-commit](https://pre-commit.com/).
-4. Run `pre-commit install` to install the pre-commit hooks.
+See [main development documentation][main-dev-doc].
 
 ## CI/CD
 
@@ -267,35 +264,6 @@ make sync
 python3 ../scripts/rbac-check.py
 ```
 
-### Run end-to-end tests locally
-
-We have some [end-to-end tests](https://github.com/ray-project/kuberay/blob/master/.github/workflows/actions/compatibility/action.yaml) on GitHub Actions.
-These tests operate small Ray clusters running within a [kind](https://kind.sigs.k8s.io/) (Kubernetes-in-docker) environment. To run the tests yourself, follow these steps:
-
-* Step1: Install related dependencies, including [kind](https://kind.sigs.k8s.io/) and [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/).
-
-* Step2: You must be in `/path/to/your/kuberay/`.
-  ```bash
-  # [Usage]: RAY_IMAGE=$RAY_IMAGE OPERATOR_IMAGE=$OPERATOR_IMAGE python3 tests/compatibility-test.py
-  #          These 3 environment variables are optional.
-  # [Example]:
-  RAY_IMAGE=rayproject/ray:2.9.0 OPERATOR_IMAGE=kuberay/operator:nightly python3 tests/compatibility-test.py
-  ```
-### Running configuration tests locally.
-
-The sample RayCluster and RayService CRs under `ray-operator/config/samples` are tested in `tests/test_sample_raycluster_yamls.py`
-and `tests/test_sample_rayservice_yamls.py`. Currently, only a few of these sample configurations are tested in the CI. See
-[KubeRay issue #695](https://github.com/ray-project/kuberay/issues/695).
-
-```bash
-# Test RayCluster doc examples.
-RAY_IMAGE=rayproject/ray:2.9.0 OPERATOR_IMAGE=kuberay/operator:nightly python3 tests/test_sample_raycluster_yamls.py
-# Test RayService doc examples.
-RAY_IMAGE=rayproject/ray:2.9.0 OPERATOR_IMAGE=kuberay/operator:nightly python3 tests/test_sample_rayservice_yamls.py
-```
-
-See [KubeRay PR #605](https://github.com/ray-project/kuberay/pull/605) for more details about the test framework.
-
 ### Building Multi architecture images locally
 
 Most of image repositories supports multiple architectures container images. When running an image from a device, the docker client automatically pulls the correct the image with a matching architectures. The easiest way to build multi-arch images is to utilize Docker `Buildx` plug-in which allows easily building multi-arch images using Qemu emulation from a single machine. Buildx plugin is readily available when you install the [Docker Desktop](https://docs.docker.com/desktop/) on your machine.
@@ -330,3 +298,5 @@ docker buildx build --tag quay.io/<my org>/operator:latest --tag docker.io/<my o
 * --tag is a remote repo_name:tag to push.
 * --push/--load optionally Push to remote registry or Load into local docker.
 * Some registry such as Quay.io dashboard displays attestation manifests as unknown platforms. Setting --provenance=false to avoid this issue.
+
+[main-dev-doc]: ../docs/development/development.md#pre-commit-hooks

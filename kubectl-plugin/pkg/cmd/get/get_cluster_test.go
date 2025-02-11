@@ -3,19 +3,16 @@ package get
 import (
 	"bytes"
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	kubefake "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/clientcmd/api"
-	cmdtesting "k8s.io/kubectl/pkg/cmd/testing"
 
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util/client"
 
@@ -35,7 +32,7 @@ func TestRayClusterGetComplete(t *testing.T) {
 	fakeClusterGetOptions.AllNamespaces = false
 
 	err := fakeClusterGetOptions.Complete(fakeArgs)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	assert.True(t, fakeClusterGetOptions.AllNamespaces)
 	assert.Equal(t, fakeClusterGetOptions.args, fakeArgs)
@@ -47,47 +44,11 @@ func TestRayClusterGetValidate(t *testing.T) {
 
 	testNS, testContext, testBT, testImpersonate := "test-namespace", "test-context", "test-bearer-token", "test-person"
 
-	// Fake directory for kubeconfig
-	fakeDir, err := os.MkdirTemp("", "fake-config")
-	assert.Nil(t, err)
-	defer os.RemoveAll(fakeDir)
+	kubeConfigWithCurrentContext, err := util.CreateTempKubeConfigFile(t, testContext)
+	require.NoError(t, err)
 
-	// Set up fake config for kubeconfig
-	config := &api.Config{
-		Clusters: map[string]*api.Cluster{
-			"test-cluster": {
-				Server:                "https://fake-kubernetes-cluster.example.com",
-				InsecureSkipTLSVerify: true, // For testing purposes
-			},
-		},
-		Contexts: map[string]*api.Context{
-			"my-fake-context": {
-				Cluster:  "my-fake-cluster",
-				AuthInfo: "my-fake-user",
-			},
-		},
-		CurrentContext: "my-fake-context",
-		AuthInfos: map[string]*api.AuthInfo{
-			"my-fake-user": {
-				Token: "", // Empty for testing without authentication
-			},
-		},
-	}
-
-	fakeFile := filepath.Join(fakeDir, ".kubeconfig")
-
-	err = clientcmd.WriteToFile(*config, fakeFile)
-	assert.Nil(t, err)
-
-	// Initialize the fake config flag with the fake kubeconfig and values
-	fakeConfigFlags := &genericclioptions.ConfigFlags{
-		Namespace:        &testNS,
-		Context:          &testContext,
-		KubeConfig:       &fakeFile,
-		BearerToken:      &testBT,
-		Impersonate:      &testImpersonate,
-		ImpersonateGroup: &[]string{"fake-group"},
-	}
+	kubeConfigWithoutCurrentContext, err := util.CreateTempKubeConfigFile(t, "")
+	require.NoError(t, err)
 
 	tests := []struct {
 		name        string
@@ -98,18 +59,56 @@ func TestRayClusterGetValidate(t *testing.T) {
 		{
 			name: "Test validation when no context is set",
 			opts: &GetClusterOptions{
-				configFlags:   genericclioptions.NewConfigFlags(false),
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithoutCurrentContext,
+				},
 				AllNamespaces: false,
 				args:          []string{"random_arg"},
 				ioStreams:     &testStreams,
 			},
-			expectError: "no context is currently set, use \"kubectl config use-context <context>\" to select a new one",
+			expectError: "no context is currently set, use \"--context\" or \"kubectl config use-context <context>\" to select a new one",
+		},
+		{
+			name: "no error when kubeconfig has current context and --context switch isn't set",
+			opts: &GetClusterOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithCurrentContext,
+				},
+				ioStreams: &testStreams,
+			},
+		},
+		{
+			name: "no error when kubeconfig has no current context and --context switch is set",
+			opts: &GetClusterOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithoutCurrentContext,
+					Context:    &testContext,
+				},
+				ioStreams: &testStreams,
+			},
+		},
+		{
+			name: "no error when kubeconfig has current context and --context switch is set",
+			opts: &GetClusterOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithCurrentContext,
+					Context:    &testContext,
+				},
+				ioStreams: &testStreams,
+			},
 		},
 		{
 			name: "Test validation when more than 1 arg",
 			opts: &GetClusterOptions{
 				// Use fake config to bypass the config flag checks
-				configFlags:   fakeConfigFlags,
+				configFlags: &genericclioptions.ConfigFlags{
+					Namespace:        &testNS,
+					Context:          &testContext,
+					KubeConfig:       &kubeConfigWithCurrentContext,
+					BearerToken:      &testBT,
+					Impersonate:      &testImpersonate,
+					ImpersonateGroup: &[]string{"fake-group"},
+				},
 				AllNamespaces: false,
 				args:          []string{"fake", "args"},
 				ioStreams:     &testStreams,
@@ -120,7 +119,14 @@ func TestRayClusterGetValidate(t *testing.T) {
 			name: "Successful validation call",
 			opts: &GetClusterOptions{
 				// Use fake config to bypass the config flag checks
-				configFlags:   fakeConfigFlags,
+				configFlags: &genericclioptions.ConfigFlags{
+					Namespace:        &testNS,
+					Context:          &testContext,
+					KubeConfig:       &kubeConfigWithCurrentContext,
+					BearerToken:      &testBT,
+					Impersonate:      &testImpersonate,
+					ImpersonateGroup: &[]string{"fake-group"},
+				},
 				AllNamespaces: false,
 				args:          []string{"random_arg"},
 				ioStreams:     &testStreams,
@@ -133,10 +139,9 @@ func TestRayClusterGetValidate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.opts.Validate()
 			if tc.expectError != "" {
-				assert.Error(t, err)
-				assert.Equal(t, tc.expectError, err.Error())
+				require.EqualError(t, err, tc.expectError)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -144,9 +149,6 @@ func TestRayClusterGetValidate(t *testing.T) {
 
 // Tests the Run() step of the command and ensure that the output is as expected.
 func TestRayClusterGetRun(t *testing.T) {
-	tf := cmdtesting.NewTestFactory().WithNamespace("test")
-	defer tf.Cleanup()
-
 	testStreams, _, resBuf, _ := genericclioptions.NewTestIOStreams()
 
 	fakeClusterGetOptions := NewGetClusterOptions(testStreams)
@@ -206,12 +208,10 @@ func TestRayClusterGetRun(t *testing.T) {
 	// Result buffer for the expected table result
 	var resbuffer bytes.Buffer
 	err := expectedTestResultTable.PrintObj(testResTable, &resbuffer)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	err = fakeClusterGetOptions.Run(context.Background(), k8sClients)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
-	if e, a := resbuffer.String(), resBuf.String(); e != a {
-		t.Errorf("\nexpected\n%v\ngot\n%v", e, a)
-	}
+	assert.Equal(t, resbuffer.String(), resBuf.String())
 }

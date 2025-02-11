@@ -205,6 +205,11 @@ func CheckName(s string) string {
 	return s
 }
 
+// TrimJobName uses CheckLabel to trim Kubernetes job to constrains
+func TrimJobName(jobName string) string {
+	return CheckLabel(jobName)
+}
+
 // CheckLabel makes sure the label value does not start with a punctuation and the total length is < 63 char
 func CheckLabel(s string) string {
 	maxLenght := 63
@@ -638,4 +643,12 @@ func IsAutoscalingEnabled[T *rayv1.RayCluster | *rayv1.RayJob | *rayv1.RayServic
 func IsGCSFaultToleranceEnabled(instance rayv1.RayCluster) bool {
 	v, ok := instance.Annotations[RayFTEnabledAnnotationKey]
 	return (ok && strings.ToLower(v) == "true") || instance.Spec.GcsFaultToleranceOptions != nil
+}
+
+// GetRayClusterNameFromService returns the name of the RayCluster that the service points to
+func GetRayClusterNameFromService(svc *corev1.Service) string {
+	if svc == nil || svc.Spec.Selector == nil {
+		return ""
+	}
+	return svc.Spec.Selector[RayClusterLabelKey]
 }

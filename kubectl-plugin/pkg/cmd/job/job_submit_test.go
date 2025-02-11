@@ -6,9 +6,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/clientcmd/api"
+
+	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 )
@@ -21,55 +22,16 @@ func TestRayJobSubmitComplete(t *testing.T) {
 
 	err := fakeSubmitJobOptions.Complete()
 	assert.Equal(t, "default", *fakeSubmitJobOptions.configFlags.Namespace)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "fake/path/to/env/yaml", fakeSubmitJobOptions.runtimeEnv)
 }
 
 func TestRayJobSubmitValidate(t *testing.T) {
 	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
 
-	testNS, testContext, testBT, testImpersonate := "test-namespace", "test-contet", "test-bearer-token", "test-person"
+	testNS, testContext, testBT, testImpersonate := "test-namespace", "test-context", "test-bearer-token", "test-person"
 
-	// Fake directory for kubeconfig
-	fakeDir, err := os.MkdirTemp("", "fake-dir")
-	assert.Nil(t, err)
-	defer os.RemoveAll(fakeDir)
-
-	// Set up fake config for kubeconfig
-	config := &api.Config{
-		Clusters: map[string]*api.Cluster{
-			"test-cluster": {
-				Server:                "https://fake-kubernetes-cluster.example.com",
-				InsecureSkipTLSVerify: true, // For testing purposes
-			},
-		},
-		Contexts: map[string]*api.Context{
-			"my-fake-context": {
-				Cluster:  "my-fake-cluster",
-				AuthInfo: "my-fake-user",
-			},
-		},
-		CurrentContext: "my-fake-context",
-		AuthInfos: map[string]*api.AuthInfo{
-			"my-fake-user": {
-				Token: "", // Empty for testing without authentication
-			},
-		},
-	}
-
-	fakeFile := filepath.Join(fakeDir, ".kubeconfig")
-
-	err = clientcmd.WriteToFile(*config, fakeFile)
-	assert.Nil(t, err)
-
-	fakeConfigFlags := &genericclioptions.ConfigFlags{
-		Namespace:        &testNS,
-		Context:          &testContext,
-		KubeConfig:       &fakeFile,
-		BearerToken:      &testBT,
-		Impersonate:      &testImpersonate,
-		ImpersonateGroup: &[]string{"fake-group"},
-	}
+	fakeDir := t.TempDir()
 
 	rayYaml := `apiVersion: ray.io/v1
 kind: RayJob
@@ -81,11 +43,16 @@ spec:
 	rayJobYamlPath := filepath.Join(fakeDir, "rayjob-temp-*.yaml")
 
 	file, err := os.Create(rayJobYamlPath)
-	assert.Nil(t, err)
-	defer file.Close()
+	require.NoError(t, err)
 
 	_, err = file.Write([]byte(rayYaml))
-	assert.Nil(t, err)
+	require.NoError(t, err)
+
+	kubeConfigWithCurrentContext, err := util.CreateTempKubeConfigFile(t, testContext)
+	require.NoError(t, err)
+
+	kubeConfigWithoutCurrentContext, err := util.CreateTempKubeConfigFile(t, "")
+	require.NoError(t, err)
 
 	tests := []struct {
 		name        string
@@ -95,18 +62,52 @@ spec:
 		{
 			name: "Test validation when no context is set",
 			opts: &SubmitJobOptions{
-				configFlags: genericclioptions.NewConfigFlags(false),
-				ioStreams:   &testStreams,
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithoutCurrentContext,
+				},
+				ioStreams:  &testStreams,
+				fileName:   rayJobYamlPath,
+				workingDir: "Fake/File/Path",
 			},
-			expectError: "no context is currently set, use \"kubectl config use-context <context>\" to select a new one",
+			expectError: "no context is currently set, use \"--context\" or \"kubectl config use-context <context>\" to select a new one",
+		},
+		{
+			name: "no error when kubeconfig has current context and --context switch isn't set",
+			opts: &SubmitJobOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithCurrentContext,
+				},
+				ioStreams:  &testStreams,
+				fileName:   rayJobYamlPath,
+				workingDir: "Fake/File/Path",
+			},
+		},
+		{
+			name: "no error when kubeconfig has no current context and --context switch is set",
+			opts: &SubmitJobOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithoutCurrentContext,
+					Context:    &testContext,
+				},
+				ioStreams:  &testStreams,
+				fileName:   rayJobYamlPath,
+				workingDir: "Fake/File/Path",
+			},
 		},
 		{
 			name: "Successful submit job validation with RayJob",
 			opts: &SubmitJobOptions{
-				configFlags: fakeConfigFlags,
-				ioStreams:   &testStreams,
-				fileName:    rayJobYamlPath,
-				workingDir:  "Fake/File/Path",
+				configFlags: &genericclioptions.ConfigFlags{
+					Namespace:        &testNS,
+					Context:          &testContext,
+					KubeConfig:       &kubeConfigWithCurrentContext,
+					BearerToken:      &testBT,
+					Impersonate:      &testImpersonate,
+					ImpersonateGroup: &[]string{"fake-group"},
+				},
+				ioStreams:  &testStreams,
+				fileName:   rayJobYamlPath,
+				workingDir: "Fake/File/Path",
 			},
 		},
 	}
@@ -115,9 +116,9 @@ spec:
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.opts.Validate()
 			if tc.expectError != "" {
-				assert.Equal(t, tc.expectError, err.Error())
+				require.EqualError(t, err, tc.expectError)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -125,7 +126,7 @@ spec:
 
 func TestDecodeRayJobYaml(t *testing.T) {
 	rayjobtmpfile, err := os.CreateTemp("./", "rayjob-temp-*.yaml")
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	defer os.Remove(rayjobtmpfile.Name())
 
@@ -136,10 +137,10 @@ metadata:
 spec:
   submissionMode: 'InteractiveMode'`
 	_, err = rayjobtmpfile.Write([]byte(rayYaml))
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	rayJobYamlActual, err := decodeRayJobYaml(filepath.Join("./", rayjobtmpfile.Name()))
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, "rayjob-sample", rayJobYamlActual.GetName())
 
@@ -149,7 +150,7 @@ spec:
 
 func TestRuntimeEnvHasWorkingDir(t *testing.T) {
 	runtimeEnvFile, err := os.CreateTemp("./", "runtime-env-*.yaml")
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	defer os.Remove(runtimeEnvFile.Name())
 
@@ -161,13 +162,13 @@ env_vars:
 working_dir: /fake/dir/ray_working_dir/
 `
 	_, err = runtimeEnvFile.Write([]byte(runTimeEnv))
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	runtimeEnvActual, err := runtimeEnvHasWorkingDir(filepath.Join("./", runtimeEnvFile.Name()))
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	assert.NotEmpty(t, runtimeEnvActual)
-	assert.Equal(t, runtimeEnvActual, "/fake/dir/ray_working_dir/")
+	assert.Equal(t, "/fake/dir/ray_working_dir/", runtimeEnvActual)
 }
 
 func TestRaySubmitCmd(t *testing.T) {
@@ -188,7 +189,7 @@ func TestRaySubmitCmd(t *testing.T) {
 	fakeSubmitJobOptions.entryPoint = "python fake_python_script.py"
 
 	actualCmd, err := fakeSubmitJobOptions.raySubmitCmd()
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	expectedCmd := []string{
 		"ray",
 		"job",

@@ -5,7 +5,7 @@ import (
 	"embed"
 	"fmt"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -22,7 +22,7 @@ var _files embed.FS
 func ReadFile(t Test, fileName string) []byte {
 	t.T().Helper()
 	file, err := _files.ReadFile(fileName)
-	assert.NoError(t.T(), err)
+	require.NoError(t.T(), err)
 	return file
 }
 
@@ -154,11 +154,11 @@ func rayServiceSampleYamlApplyConfiguration() *rayv1ac.RayServiceSpecApplyConfig
 							WithResources(corev1ac.ResourceRequirements().
 								WithRequests(corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("2"),
-									corev1.ResourceMemory: resource.MustParse("2Gi"),
+									corev1.ResourceMemory: resource.MustParse("3Gi"),
 								}).
 								WithLimits(corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("2"),
-									corev1.ResourceMemory: resource.MustParse("2Gi"),
+									corev1.ResourceMemory: resource.MustParse("3Gi"),
 								})))))),
 		)
 }

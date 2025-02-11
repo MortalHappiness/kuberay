@@ -6,6 +6,7 @@ import (
 	"github.com/ray-project/kuberay/kubectl-plugin/pkg/util"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
@@ -49,7 +50,7 @@ func TestComplete(t *testing.T) {
 			hasErr:               false,
 		},
 		{
-			name:                 "valid rayjob with namespace",
+			name:                 "valid RayJob with namespace",
 			namespace:            "test-namespace",
 			expectedResourceType: util.RayJob,
 			expectedNamespace:    "test-namespace",
@@ -100,12 +101,98 @@ func TestComplete(t *testing.T) {
 			fakeDeleteOptions.configFlags.Namespace = &tc.namespace
 			err := fakeDeleteOptions.Complete(cmd, tc.args)
 			if tc.hasErr {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tc.expectedName, fakeDeleteOptions.ResourceName)
 				assert.Equal(t, tc.expectedNamespace, fakeDeleteOptions.Namespace)
 				assert.Equal(t, tc.expectedResourceType, fakeDeleteOptions.ResourceType)
+			}
+		})
+	}
+}
+
+func TestRayDeleteValidate(t *testing.T) {
+	testStreams, _, _, _ := genericclioptions.NewTestIOStreams()
+
+	testNS, testContext, testBT, testImpersonate := "test-namespace", "test-context", "test-bearer-token", "test-person"
+
+	kubeConfigWithCurrentContext, err := util.CreateTempKubeConfigFile(t, testContext)
+	require.NoError(t, err)
+
+	kubeConfigWithoutCurrentContext, err := util.CreateTempKubeConfigFile(t, "")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		opts        *DeleteOptions
+		expectError string
+	}{
+		{
+			name: "Test validation when no context is set",
+			opts: &DeleteOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithoutCurrentContext,
+				},
+				ioStreams: &testStreams,
+			},
+			expectError: "no context is currently set, use \"--context\" or \"kubectl config use-context <context>\" to select a new one",
+		},
+		{
+			name: "no error when kubeconfig has current context and --context switch isn't set",
+			opts: &DeleteOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithCurrentContext,
+				},
+				ioStreams: &testStreams,
+			},
+		},
+		{
+			name: "no error when kubeconfig has no current context and --context switch is set",
+			opts: &DeleteOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithoutCurrentContext,
+					Context:    &testContext,
+				},
+				ioStreams: &testStreams,
+			},
+		},
+		{
+			name: "no error when kubeconfig has current context and --context switch is set",
+			opts: &DeleteOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					KubeConfig: &kubeConfigWithCurrentContext,
+					Context:    &testContext,
+				},
+				ioStreams: &testStreams,
+			},
+		},
+		{
+			name: "Successful submit job validation with RayJob",
+			opts: &DeleteOptions{
+				configFlags: &genericclioptions.ConfigFlags{
+					Namespace:        &testNS,
+					Context:          &testContext,
+					KubeConfig:       &kubeConfigWithCurrentContext,
+					BearerToken:      &testBT,
+					Impersonate:      &testImpersonate,
+					ImpersonateGroup: &[]string{"fake-group"},
+				},
+				ioStreams:    &testStreams,
+				ResourceType: util.RayJob,
+				ResourceName: "test-rayjob",
+				Namespace:    testNS,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.opts.Validate()
+			if tc.expectError != "" {
+				assert.EqualError(t, err, tc.expectError)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
